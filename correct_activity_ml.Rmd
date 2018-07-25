@@ -1,0 +1,97 @@
+---
+title: "Classifying Correct and Incorrect Weightlifting Techniques Using Machine Learning"
+author: "Connor Claypool"
+date: "25 July 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+# Introduction
+
+The goal of this analysis is to create a machine learning model which can successfully differentiate between weightlifting techniques based on accelerometer data. The data for this analysis comes from the Weight Lifting Exercises (WLE) dataset, which contains measurements from accelerometers on participants' arms, forearms, waists and dumbbells as they performed 10 unilateral dumbbell bicep curls. Participants performed these exercises according to one of five specific techniques, one of which was correct. Using the R language and the `caret` package, we will build a machine learning model to classify observations based on which of the five techniques they correspond to. For more information on the WLE dataset, see [this paper](https://web.archive.org/web/20161217164008/http://groupware.les.inf.puc-rio.br:80/work.jsf?p1=11201) by Velloso, Bulling, Gellersen, Ugulino, and Fuks.
+
+# Loading and Processing the Data
+
+The first step is to download the data if necessary and load it into R.
+
+```{r}
+train_data_file <- "pml-training.csv"
+train_data_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+if(!file.exists(train_data_file)) {
+    download.file(url = train_data_url,
+                  destfile = train_data_file,
+                  method = "curl")
+}
+training_set <- read.csv(train_data_file)
+dim(training_set)
+
+test_data_file <- "pml-testing.csv"
+test_data_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if(!file.exists(test_data_file)) {
+    download.file(url = test_data_url,
+                  destfile = test_data_file,
+                  method = "curl")
+}
+test_set <- read.csv(test_data_file)
+dim(test_set)
+```
+
+These datasets are large and cannot be easily displayed, but viewing the training and test sets reveals many variables which cannot be used for prediction. Some are unrelated to the weightlifting technique used, such as the participant name, and some have no values recorded in the test set. These variables are therefore removed.
+
+```{r}
+training_set <- training_set[-c(1:7)]
+test_set <- test_set[-c(1:7, dim(test_set)[2])]
+not_missing <- which(!is.na(colSums(test_set)))
+training_set <- training_set[c(not_missing, dim(training_set)[2])]
+test_set <- test_set[not_missing]
+dim(training_set)
+dim(test_set)
+```
+
+We now have 52 predictors, as opposed to 159. Next, we check whether there remain any missing values in the data which need to be addressed.
+
+```{r}
+any(is.na(training_set))
+any(is.na(test_set))
+```
+
+Finally, we plot the distributions of each of the variables to check for outliers or problematic patterns.
+
+```{r, fig.height=8, message=FALSE}
+library(reshape2)
+library(ggplot2)
+training_set_melt <- melt(training_set)
+ggplot(training_set_melt, aes(variable, value)) + 
+    geom_boxplot(outlier.alpha = 0.33, outlier.size = 1) + 
+    coord_flip() +
+    xlab("Variable") +
+    ylab("Value") +
+    ggtitle("Distribution of Training Data")
+```
+
+No problems are apparent from this plot; most of the data seems relatively evenly distributed around zero, and only one distant outlier is present.
+
+# Model Training, Selection and Evaluation
+ 
+We will create our model using the `caret` package, which automates many aspects of model selection, and we will use 10-fold cross-validation so that the reported training accuracy will approximate the out-of-sample accuracy. Aiming for an accuracy of 99%, we will trial different algorithms, and possibly stack models, stopping as soon as this threshold is achieved. Firstly, we will train a random forest model.
+
+```{r, message=FALSE}
+library(caret)
+library(doParallel)
+
+set.seed(3791)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+
+train_control <- trainControl(method="cv", number=10)
+model_rf <- train(classe ~ ., training_set, 
+                  method="rf", trControl=train_control)
+
+stopCluster(cl)
+model_rf
+```
+
+It can be seen that the random forest model achieves a classification accuracy of over 99%, and thus seems to be effective at distinguishing between the different weightlifting techniques using accelerometer data. Additionally, since this accuracy figure was obtained through 10-fold cross-validation, it should be a close estimate of the out-of-sample accuracy. Therefore, no further models are trained.
